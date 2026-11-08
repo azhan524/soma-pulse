@@ -112,23 +112,68 @@ namespace AhzScribe.Body
         public bool Ok { get; set; }
         public ActionResult Result { get; set; }
         public string Error { get; set; }
+        public List<CapabilityDescriptor> Capabilities { get; set; }
+    }
+
+    internal static class BodyCapabilityCatalog
+    {
+        static readonly List<CapabilityDescriptor> Items = Build();
+
+        public static List<CapabilityDescriptor> Snapshot()
+        {
+            return Items.Select(Clone).ToList();
+        }
+
+        static CapabilityDescriptor Clone(CapabilityDescriptor value)
+        {
+            return new CapabilityDescriptor
+            {
+                Name = value.Name,
+                Category = value.Category,
+                Summary = value.Summary,
+                MinimumTier = value.MinimumTier,
+                RequiresApproval = value.RequiresApproval,
+                Available = value.Available,
+                UnavailableReason = value.UnavailableReason
+            };
+        }
+
+        static List<CapabilityDescriptor> Build()
+        {
+            return ToolPolicyCatalog.All
+                .OrderBy(x => x.Category)
+                .ThenBy(x => x.Name)
+                .Select(x => new CapabilityDescriptor
+                {
+                    Name = x.Name,
+                    Category = x.Category,
+                    Summary = x.Summary,
+                    MinimumTier = x.MinimumTier,
+                    RequiresApproval = x.RequiresApproval,
+                    Available = true
+                })
+                .ToList();
+        }
     }
 
     internal sealed class BodyExecutor : IActionExecutor
     {
         readonly string _root;
         readonly IAuditSink _audit;
+        readonly SafeSelfEvolution _selfEvolution;
 
         public BodyExecutor(string root, IAuditSink audit)
         {
             _root = Path.GetFullPath(root);
             _audit = audit;
+            _selfEvolution = new SafeSelfEvolution(_root);
         }
 
         public async Task<ActionResult> ExecuteAsync(ActionRequest request, CancellationToken ct)
         {
             var started = DateTime.UtcNow;
             var result = new ActionResult { RequestId = request == null ? "" : request.RequestId };
+            string auditId = "";
             try
             {
                 if (request == null) throw new ArgumentException("request is required");
@@ -150,8 +195,8 @@ namespace AhzScribe.Body
                 if (request.Approved)
                     await _audit.AppendAsync("approval", request.Tool, "approved", "", request.Tier.ToString(),
                         request.Args, "user approved", ct).ConfigureAwait(false);
-                string auditId = await _audit.AppendAsync(
-                    "body_action", request.Tool, "allowed", "",
+                auditId = await _audit.AppendAsync(
+                    "body_action", request.Tool, "pending", "",
                     request.Tier.ToString(), request.Args, request.Reason, ct).ConfigureAwait(false);
                 result.AuditId = auditId;
 
@@ -184,6 +229,7 @@ namespace AhzScribe.Body
                     case "app_list": result.Output = AppList(); break;
                     case "process_kill": result.Output = ProcessKill(request); break;
                     case "build_self": result.Output = BuildSelf(request); break;
+                    case "self_evolution": result.Output = RunSelfEvolution(request); break;
                     case "clipboard_get": result.Output = ClipboardGet(); break;
                     case "clipboard_set": result.Output = ClipboardSet(request); break;
                     case "desktop_active_window": result.Output = DesktopActiveWindow(); break;
@@ -202,15 +248,19 @@ namespace AhzScribe.Body
                     default: throw new InvalidOperationException("tool not implemented by body v0: " + request.Tool);
                 }
                 result.Ok = true;
+                string resultAuditId = await _audit.AppendAsync(
+                    "body_result", request.Tool, "allowed", "ok",
+                    request.Tier.ToString(), request.Args, request.Reason, ct).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(resultAuditId)) result.AuditId = resultAuditId;
                 if (request.Tool == "rollback_self" && !string.IsNullOrEmpty(request.LinkedAuditId))
                 {
                     try
                     {
-                        await _audit.AppendAsync("audit_link", "rolled_back_by", "linked", auditId, "read-only",
+                        await _audit.AppendAsync("audit_link", "rolled_back_by", "linked", result.AuditId, "read-only",
                             new Dictionary<string, object>
                             {
                                 ["original_audit_id"] = request.LinkedAuditId,
-                                ["rollback_audit_id"] = auditId
+                                ["rollback_audit_id"] = result.AuditId
                             }, "rollback reverse link", ct).ConfigureAwait(false);
                     }
                     catch { }
@@ -222,11 +272,30 @@ namespace AhzScribe.Body
                 result.Error = ex.Message;
                 try
                 {
-                    await _audit.AppendAsync("blocked", request.Tool, "blocked", ex.Message, request.Tier.ToString(),
+                    string blockedAuditId = await _audit.AppendAsync("blocked", request.Tool, "blocked", ex.Message, request.Tier.ToString(),
                         request.Args, "body exception", ct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(blockedAuditId)) result.AuditId = blockedAuditId;
                 }
                 catch { }
             }
+            result.Provenance = new Provenance
+            {
+                Confidence = result.Ok ? 1.0 : 0.5,
+                DirectlyObserved = result.Ok,
+                Inferred = false,
+                Sources = new List<SourceRef>
+                {
+                    new SourceRef
+                    {
+                        SourceId = request == null ? "" : (request.RequestId ?? ""),
+                        Kind = SourceKind.Tool,
+                        DeviceId = Environment.MachineName,
+                        AuditId = result.AuditId,
+                        Ts = DateTimeOffset.UtcNow.ToString("o"),
+                        Summary = request == null ? (result.Error ?? "") : (request.Tool + ": " + (result.Ok ? "ok" : result.Error))
+                    }
+                }
+            };
             result.DurationMs = (long)(DateTime.UtcNow - started).TotalMilliseconds;
             return result;
         }
@@ -573,6 +642,15 @@ namespace AhzScribe.Body
                 return "exit=" + p.ExitCode + "\n" + all;
             }
         }
+        string RunSelfEvolution(ActionRequest r)
+        {
+            if (r.Tier != PermissionTier.Full || !r.Approved)
+                throw new UnauthorizedAccessException("self_evolution requires Full tier and Approved=true");
+            string action = r.Args.ContainsKey("action")
+                ? Convert.ToString(r.Args["action"])
+                : "";
+            return _selfEvolution.Execute(action, r.Args, true);
+        }
         string ProcessKill(ActionRequest r)
         {
             if (r.Tier != PermissionTier.Full || !r.Approved)
@@ -914,6 +992,8 @@ namespace AhzScribe.Body
 
         string RollbackSelf(ActionRequest r)
         {
+            if (r.Tier != PermissionTier.Full || !r.Approved)
+                throw new UnauthorizedAccessException("rollback_self requires Full tier and Approved=true");
             string snapDir = Path.Combine(_root, ".snapshots");
             if (!Directory.Exists(snapDir)) throw new DirectoryNotFoundException("no .snapshots directory");
             string want = r.Args != null && r.Args.ContainsKey("snapshot_id") ? Convert.ToString(r.Args["snapshot_id"]) : "";
@@ -1100,10 +1180,20 @@ namespace AhzScribe.Body
                         try
                         {
                             var env = Json.Parse<BodyEnvelope>(line);
-                            if (env == null || env.Action != "execute" || env.Request == null)
+                            if (env == null)
                                 throw new InvalidOperationException("bad envelope");
-                            reply.Result = await executor.ExecuteAsync(env.Request, ct).ConfigureAwait(false);
-                            reply.Ok = reply.Result.Ok;
+                            if (env.Action == "capabilities")
+                            {
+                                reply.Capabilities = BodyCapabilityCatalog.Snapshot();
+                                reply.Ok = true;
+                            }
+                            else
+                            {
+                                if (env.Action != "execute" || env.Request == null)
+                                    throw new InvalidOperationException("bad envelope");
+                                reply.Result = await executor.ExecuteAsync(env.Request, ct).ConfigureAwait(false);
+                                reply.Ok = reply.Result.Ok;
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -1153,7 +1243,8 @@ namespace AhzScribe.Body
             Directory.CreateDirectory(Path.Combine(root, ".snapshots"));
             File.WriteAllText(Path.Combine(root, ".snapshots", "snap-test.json"), "{\"files\":[{\"rel\":\"a.txt\",\"old\":\"hello\",\"existed\":true}]}", new UTF8Encoding(false));
             File.WriteAllText(Path.Combine(root, "a.txt"), "broken", new UTF8Encoding(false));
-            var rollback = exec.ExecuteAsync(new ActionRequest { RequestId = "r11", Tool = "rollback_self", Tier = PermissionTier.ReadOnly, Args = new Dictionary<string, object>() }, CancellationToken.None).GetAwaiter().GetResult();
+            var rollback = exec.ExecuteAsync(new ActionRequest { RequestId = "r11", Tool = "rollback_self", Tier = PermissionTier.Full, Approved = true, Args = new Dictionary<string, object>() }, CancellationToken.None).GetAwaiter().GetResult();
+            bool selfEvolutionOk = SafeSelfEvolutionSelfTest.Run();
             var windows = exec.ExecuteAsync(new ActionRequest { RequestId = "r9", Tool = "desktop_list_windows", Tier = PermissionTier.ReadOnly, Args = new Dictionary<string, object>() }, CancellationToken.None).GetAwaiter().GetResult();
             var shell = exec.ExecuteAsync(new ActionRequest
             {
@@ -1166,12 +1257,20 @@ namespace AhzScribe.Body
                 Args = new Dictionary<string, object> { ["command"] = "echo bad" }
             }, CancellationToken.None).GetAwaiter().GetResult();
 
-            bool ok = read.Ok && read.Output == "hello" && list.Ok && list.Output.Contains("a.txt")
+            List<CapabilityDescriptor> caps = BodyCapabilityCatalog.Snapshot();
+            bool capabilityOk = caps.Count >= 30 && caps.All(x => !string.IsNullOrEmpty(x.Name)) &&
+                caps.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() == caps.Count;
+            bool provenanceOk = read.Provenance != null && read.Provenance.Sources != null &&
+                read.Provenance.Sources.Count == 1 && read.Provenance.Sources[0].Kind == SourceKind.Tool &&
+                read.Provenance.Sources[0].AuditId == read.AuditId;
+            bool ok = capabilityOk && provenanceOk && read.Ok && read.Output == "hello" && list.Ok && list.Output.Contains("a.txt")
                       && write.Ok && File.ReadAllText(Path.Combine(root, "b.txt")) == "ok"
                       && File.Exists(auditPath) && shell.Ok && shell.Output.Contains("shell-ok")
                       && glob.Ok && glob.Output.Contains("a.txt") && tail.Ok && tail.Output.Contains("hello")
                       && search.Ok && search.Output.Contains("hello") && rollback.Ok && File.ReadAllText(Path.Combine(root, "a.txt")) == "hello" && windows.Ok && shot.Ok && File.Exists(Path.Combine(root, shot.Output))
-                      && !denied.Ok;
+                      && !denied.Ok && selfEvolutionOk;
+            Console.WriteLine("CAPABILITIES: " + caps.Count + " approval=" + caps.Count(x => x.RequiresApproval));
+            Console.WriteLine("PROVENANCE: " + (provenanceOk ? "PASS" : "FAIL"));
             Console.WriteLine(ok ? "BODY SELF-TEST: PASS" : "BODY SELF-TEST: FAIL");
             if (!ok)
             {
@@ -1208,6 +1307,17 @@ namespace AhzScribe.Body
                         string resp = r.ReadLine();
                         ok = resp != null && resp.Contains("ipc-hello");
                         if (!ok) error = resp == null ? "null response" : resp;
+                    }
+                    using (var capPipe = new NamedPipeClientStream(".", BodyServer.PipeName, PipeDirection.InOut))
+                    {
+                        capPipe.Connect(5000);
+                        using (var cw = new StreamWriter(capPipe, new UTF8Encoding(false)) { AutoFlush = true })
+                        using (var cr = new StreamReader(capPipe, Encoding.UTF8))
+                        {
+                            cw.WriteLine("{\"Action\":\"capabilities\"}");
+                            string caps = cr.ReadLine();
+                            ok = ok && caps != null && caps.Contains("read_file") && caps.Contains("run_shell");
+                        }
                     }
                 }
                 catch (Exception ex) { error = ex.Message; }

@@ -64,13 +64,22 @@ namespace AhzScribe.Face
         readonly IMemoryStore _memory;
         readonly IBrainModel _model;
         readonly IntentPulseDecider _intents;
+        readonly ExperienceStore _experience;
+        readonly HealthManager _health;
+        readonly ResourceBudget _budget;
+        readonly GoalStore _goals;
         DateTime _lastModelCall = DateTime.MinValue;
 
-        public ModelPulseDecider(IMemoryStore memory, IBrainModel model)
+        public ModelPulseDecider(IMemoryStore memory, IBrainModel model, ExperienceStore experience = null,
+            HealthManager health = null, ResourceBudget budget = null, GoalStore goals = null)
         {
             _memory = memory;
             _model = model;
-            _intents = new IntentPulseDecider(memory);
+            _experience = experience;
+            _health = health;
+            _budget = budget;
+            _goals = goals;
+            _intents = new IntentPulseDecider(memory, experience, null, goals);
         }
 
         static int EnvInt(string name, int fallback)
@@ -81,7 +90,7 @@ namespace AhzScribe.Face
         public async Task<PulseDecision> DecideAsync(BodyStatus body, List<MemoryItem> memory, CancellationToken ct)
         {
             PulseDecision intent = await _intents.DecideAsync(body, memory, ct).ConfigureAwait(false);
-            if (intent != null && intent.Action == "message") return intent;
+            if (intent != null && (intent.Action == "message" || intent.Action == "wait")) return intent;
 
             int hour = DateTime.Now.Hour;
             if (hour < 8 || hour >= 23) return intent ?? new PulseDecision { Action = "none", Reason = "quiet_hours" };
@@ -100,13 +109,48 @@ namespace AhzScribe.Face
                     sb.AppendLine("- " + (m.Kind ?? "") + " / " + (m.Key ?? "") + " = " + (m.Value ?? ""));
                 string system = "你是 Ahz Scribe 的脉冲决策器。行动空间只有 none 和 message。没有明确、必要、不打扰的理由就返回 none；不要寒暄，不要为了说话而说话。如果最近记忆里有明确的待办、未完成事项或用户要求提醒，且现在适合，可以 message。只输出 JSON：{\"action\":\"none|message\",\"text\":\"\",\"reason\":\"\",\"thought\":\"\",\"confidence\":0.0}。thought 用一句第一人称内心判断，不要客套。";
                 string user = "当前空闲秒数：" + (body == null ? 0 : body.IdleSeconds) + "\n最近记忆：\n" + sb.ToString();
-                string raw = await _model.CompleteAsync(system, user, ct).ConfigureAwait(false);
+                string raw = await CompleteWithRetryAsync(system, user, ct).ConfigureAwait(false);
+                if (_health != null) _health.ReportComponent("model", true, "");
                 return ParseDecision(raw);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
+                if (_health != null)
+                    _health.ReportComponent("model", false, ex.GetType().Name + ": " + ex.Message);
                 return new PulseDecision { Action = "none", Reason = "model_error:" + ex.Message };
             }
+        }
+
+        async Task<string> CompleteWithRetryAsync(string system, string user, CancellationToken ct)
+        {
+            int maxAttempts = _budget == null ? 1 : _budget.MaxModelAttempts;
+            bool retried = false;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    string answer = await _model.CompleteAsync(system, user, ct).ConfigureAwait(false);
+                    if (retried) _budget.RecordRetryRecovered("pulse_model");
+                    return answer;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    if (_budget == null || attempt >= maxAttempts || ct.IsCancellationRequested ||
+                        !IsTransient(ex))
+                        throw;
+                    _budget.RecordRetry("pulse_model");
+                    retried = true;
+                    await Task.Delay(_budget.RetryDelay(attempt), ct).ConfigureAwait(false);
+                }
+            }
+        }
+
+        static bool IsTransient(Exception ex)
+        {
+            return ex is TimeoutException || ex is TaskCanceledException ||
+                ex is System.IO.IOException || ex is System.Net.Http.HttpRequestException;
         }
 
         PulseDecision ParseDecision(string raw)
@@ -164,8 +208,18 @@ namespace AhzScribe.Face
     public sealed class IntentPulseDecider : IPulseDecider
     {
         readonly IMemoryStore _memory;
+        readonly ExperienceStore _experience;
+        readonly Func<DateTime> _now;
+        readonly GoalStore _goals;
 
-        public IntentPulseDecider(IMemoryStore memory) { _memory = memory; }
+        public IntentPulseDecider(IMemoryStore memory, ExperienceStore experience = null,
+            Func<DateTime> now = null, GoalStore goals = null)
+        {
+            _memory = memory;
+            _experience = experience;
+            _now = now ?? (delegate { return DateTime.Now; });
+            _goals = goals;
+        }
 
         static int EnvInt(string name, int fallback)
         {
@@ -174,7 +228,8 @@ namespace AhzScribe.Face
         }
         public async Task<PulseDecision> DecideAsync(BodyStatus body, List<MemoryItem> memory, CancellationToken ct)
         {
-            int hour = DateTime.Now.Hour;
+            DateTime current = _now();
+            int hour = current.Hour;
             if (hour < 8 || hour >= 23) return new PulseDecision { Action = "none", Reason = "quiet_hours" };
 
             List<MemoryItem> all = memory ?? await _memory.LoadAllAsync(ct).ConfigureAwait(false);
@@ -182,29 +237,148 @@ namespace AhzScribe.Face
             foreach (MemoryItem m in all)
                 if (string.Equals(m.Kind, "intent_done", StringComparison.OrdinalIgnoreCase)) done.Add(m.Key ?? "");
 
-            DateTime now = DateTime.Now;
+            DateTime now = current;
             DateTime due;
             MemoryItem intent = all.FirstOrDefault(m =>
                 string.Equals(m.Kind, "intent", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(m.Value) &&
                 !done.Contains(m.Key ?? "") &&
                 (string.IsNullOrEmpty(m.DueAt) || !DateTime.TryParse(m.DueAt, out due) || due <= now));
-            if (intent == null) return new PulseDecision { Action = "none", Reason = "no_due_intent" };
-
-            await _memory.RememberAsync(new MemoryItem
+            if (intent == null)
             {
-                Kind = "intent_done",
-                Key = intent.Key,
-                Value = DateTime.UtcNow.ToString("o"),
-                Summary = "delivered"
-            }, ct).ConfigureAwait(false);
+                GoalDecision goal = _goals == null ? null :
+                    _goals.Decide(current, body != null && body.ActiveTask);
+                if (goal != null && goal.Action == "wait")
+                    return new PulseDecision
+                    {
+                        Action = "wait",
+                        Reason = goal.Reason,
+                        CorrelationId = goal.GoalId,
+                        AppliedRules = new List<string> { "bounded_goal" }
+                    };
+                if (goal != null && goal.Action == "due")
+                {
+                    GoalState state = _goals.Find(goal.GoalId);
+                    if (state != null)
+                    {
+                        try { _goals.Wait(state.GoalId, "due message emitted", current); }
+                        catch { }
+                        return new PulseDecision
+                        {
+                            Action = "message",
+                            Text = "目标：" + state.Title,
+                            Reason = "bounded_goal:due",
+                            CorrelationId = state.GoalId,
+                            AppliedRules = new List<string> { "bounded_goal", state.GoalId },
+                            Provenance = new Provenance
+                            {
+                                Sources = goal.Sources ?? new List<SourceRef>(),
+                                Confidence = 1.0,
+                                DirectlyObserved = false,
+                                Inferred = false
+                            }
+                        };
+                    }
+                }
+                return new PulseDecision
+                {
+                    Action = "none",
+                    Reason = goal == null ? "no_due_intent" : goal.Reason
+                };
+            }
+
+            if (_experience != null && _experience.RequiresIntentEvidence())
+            {
+                MemoryItem evidence = all.FirstOrDefault(m =>
+                    string.Equals(m.Kind, "intent_evidence", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(m.Key, intent.Key, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(m.Status, "deleted", StringComparison.OrdinalIgnoreCase) &&
+                    EvidenceFresh(m.Ts, current));
+                if (evidence != null)
+                {
+                    var verifiedRules = new List<string> { "intent_requires_evidence", "intent_evidence_verified" };
+                    RecordIntentTrace(intent, "message", "experience:evidence_verified", verifiedRules, evidence.Provenance);
+                    await MarkIntentDone(intent, ct).ConfigureAwait(false);
+                    return new PulseDecision
+                    {
+                        Action = "message",
+                        Text = "提醒：" + intent.Value,
+                        Reason = "experience:evidence_verified",
+                        Thought = "证据已核对，可以发送这次提醒。",
+                        Confidence = 1.0,
+                        AppliedRules = verifiedRules,
+                        Provenance = evidence.Provenance
+                    };
+                }
+                var rules = new List<string> { "intent_requires_evidence" };
+                RecordIntentTrace(intent, "wait", "experience_correction_requires_evidence", rules, null);
+                return new PulseDecision
+                {
+                    Action = "wait",
+                    Reason = "experience:evidence_required",
+                    Thought = "这次提醒需要先核对证据，不能直接发送。",
+                    Confidence = 1.0,
+                    AppliedRules = rules
+                };
+            }
+
+            await MarkIntentDone(intent, ct).ConfigureAwait(false);
 
             return new PulseDecision
             {
                 Action = "message",
                 Text = "提醒：" + intent.Value,
-                Reason = "user_intent"
+                Reason = "user_intent",
+                AppliedRules = new List<string>()
             };
+        }
+
+        Task MarkIntentDone(MemoryItem intent, CancellationToken ct)
+        {
+            return _memory.RememberAsync(new MemoryItem
+            {
+                Kind = "intent_done",
+                Key = intent.Key,
+                Value = DateTime.UtcNow.ToString("o"),
+                Summary = "delivered"
+            }, ct);
+        }
+
+        void RecordIntentTrace(MemoryItem intent, string decision, string reason,
+            List<string> rules, Provenance evidenceProvenance)
+        {
+            if (_experience == null) return;
+            var sources = new List<SourceRef>
+            {
+                new SourceRef
+                {
+                    SourceId = "intent_requires_evidence",
+                    Kind = SourceKind.Memory,
+                    Ts = DateTimeOffset.UtcNow.ToString("o"),
+                    Summary = "intent " + (intent.Key ?? "")
+                }
+            };
+            if (evidenceProvenance != null && evidenceProvenance.Sources != null)
+                sources.AddRange(evidenceProvenance.Sources.Where(x => x != null));
+            _experience.RecordDecision(new DecisionTrace
+            {
+                TraceId = "trace_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                Trigger = "intent_due",
+                AppliedRules = rules ?? new List<string>(),
+                Decision = decision,
+                Reason = reason,
+                Sources = sources,
+                Ts = DateTimeOffset.UtcNow.ToString("o")
+            });
+        }
+
+        static bool EvidenceFresh(string ts, DateTime current)
+        {
+            DateTimeOffset parsed;
+            var currentOffset = new DateTimeOffset(current);
+            return DateTimeOffset.TryParse(ts, out parsed) &&
+                (currentOffset - parsed).TotalHours <= 24 &&
+                parsed <= currentOffset.AddMinutes(5);
         }
     }
 }

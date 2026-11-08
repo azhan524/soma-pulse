@@ -1,12 +1,13 @@
-# naming
+# SomaPulse naming
 
 ## 规则
 
-1. 全部小写，kebab-case（短横线分隔）。
-2. 主标识固定为 `ahz-scribe`，角色紧跟在后面，顺序固定。
-3. 同一组件在目录、Git 子模块、Docker 服务、容器、镜像、日志标签中使用同一个名字。
-4. 不允许大写、下划线、空格、驼峰、别名。
-5. 角色只有三个：
+1. 项目品牌为 **SomaPulse / 脉体计划**，公开仓库为 `soma-pulse`。
+2. Agent 名为 **AhzScribe**；项目名和 Agent 名不能混用。
+3. `ahz-scribe-*` 与 `AhzScribe.*` 是已验证版本的兼容标识，当前不随品牌改名。
+4. 只有在一次明确的破坏性版本升级中，才能统一迁移程序集和模块目录名称。
+5. 目录、服务、容器和镜像名继续使用小写 kebab-case，并保持三者一致。
+6. 当前稳定模块角色只有三个：
 
 ```text
 ahz-scribe-brain
@@ -33,14 +34,17 @@ face:  只连 brain/body 的本地接口；不挂工作区；不直接调工具
 ## 禁止
 
 ```text
-AhzScribe
 ahz_scribe
 ahz-scribe-Brain
 brain
 face
 body
 ahz-scribe-brain-service
+soma_pulse
+Soma-Pulse
 ```
+
+说明：`AhzScribe` 是正式 Agent 名称，不再列为禁止词。
 
 ## 校验
 

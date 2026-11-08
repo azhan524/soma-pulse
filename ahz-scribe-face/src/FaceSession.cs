@@ -52,6 +52,9 @@ namespace AhzScribe.Face
         public string LastProactiveAt { get; set; }
         public int UnansweredProactive { get; set; }
         public string ProactivePausedUntil { get; set; }
+        public string DeviceId { get; set; }
+        public string LastPulseAt { get; set; }
+        public int SchemaVersion { get; set; } = 1;
     }
 
     public static class FaceSession

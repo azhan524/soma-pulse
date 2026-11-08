@@ -1,5 +1,7 @@
 # Open-source Roadmap
 
+生命度与最终验收标准见 [硅基生命里程碑-v2.md](硅基生命里程碑-v2.md)。
+
 ## Exit criteria
 
 The first public release is ready only when all of these are true:

@@ -50,7 +50,7 @@ dotnet build src\AhzScribe.Body.csproj
 dotnet run --project src\AhzScribe.Body.csproj -- --self-test
 ```
 
-v0 不包含：shell、进程、网络、桌面、快照、审批 UI。  
+v0 不包含：shell、进程、网络、桌面、快照、审批 UI。
 这些仍由旧单文件栈提供，后续按迁移计划搬入。
 
 ```text

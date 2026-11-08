@@ -43,6 +43,7 @@ namespace AhzScribe.Face
                 {
                     Directory.CreateDirectory(dataDir);
                     File.AppendAllText(PathFor(dataDir), JsonSerializer.Serialize(rec) + Environment.NewLine, new UTF8Encoding(false));
+                    RaiseAppended();
                     return id;
                 }
                 catch (Exception primaryEx)
@@ -64,11 +65,37 @@ namespace AhzScribe.Face
                             fallback = true
                         };
                         File.AppendAllText(fb, JsonSerializer.Serialize(frec) + Environment.NewLine, new UTF8Encoding(false));
+                        RaiseAppended();
                         return id;
                     }
                     catch (Exception fbEx) { LastError = primaryEx.GetType().Name + ":" + primaryEx.Message + " / " + fbEx.GetType().Name + ":" + fbEx.Message; return ""; }
                 }
             }
+        }
+
+        public static bool Probe(string dataDir, out string error)
+        {
+            error = "";
+            try
+            {
+                Directory.CreateDirectory(dataDir);
+                using (new FileStream(PathFor(dataDir), FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read))
+                {
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.GetType().Name + ": " + ex.Message;
+                return false;
+            }
+        }
+
+        static void RaiseAppended()
+        {
+            Action handler = Appended;
+            if (handler == null) return;
+            try { handler(); } catch { }
         }
 
         public static void MergeFallback(string dataDir)

@@ -21,6 +21,10 @@ namespace AhzScribe.Face
         public int QuietEndHour { get; set; } = 8;
         public int UnansweredPauseHours { get; set; } = 24;
         public int PulseSeconds { get; set; } = 60;
+        public int WindowLeft { get; set; } = int.MinValue;
+        public int WindowTop { get; set; } = int.MinValue;
+        public int WindowWidth { get; set; } = 1060;
+        public int WindowHeight { get; set; } = 680;
 
         public static string ValidateSchema(string dataDir)
         {

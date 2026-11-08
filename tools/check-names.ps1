@@ -21,7 +21,7 @@ foreach ($name in $expected) {
 foreach ($name in $expected) {
     $p = Join-Path $root $name
     if (-not (Test-Path -LiteralPath $p)) { continue }
-    Get-ChildItem -LiteralPath $p -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\(bin|obj|\.git)(\\|$)' } | ForEach-Object {
+    Get-ChildItem -LiteralPath $p -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\(bin|obj|\.git)(\\|$)|\\(_body-data|_face-data|_brain-data|_sandbox[^\\]*)(\\|$)' } | ForEach-Object {
         if ($_.Name -cnotmatch '^[a-z0-9]+(-[a-z0-9]+)*$') {
             Fail "bad directory name: $($_.FullName)"
         }

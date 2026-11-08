@@ -29,6 +29,8 @@ audit/
 
 # Local tool caches
 .dotnet/
+runtime/
+.local-runtime/
 .snapshots/
 .vs/
 .idea/
@@ -42,6 +44,10 @@ Desktop.ini
 
 face*.out
 face*.err
+
+# Local review/test artifacts
+_local_artifacts/
+data/
 
 
 cef-face.out

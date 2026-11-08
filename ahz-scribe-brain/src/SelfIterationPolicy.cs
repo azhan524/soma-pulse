@@ -42,7 +42,8 @@ namespace AhzScribe.Brain
                 if (string.Equals(rel, b, StringComparison.OrdinalIgnoreCase) ||
                     rel.StartsWith(b + "/", StringComparison.OrdinalIgnoreCase))
                 { why = "protected:" + b; return false; }
-            return true;
+            why = "direct_workspace_write_blocked; use self_evolution pipeline";
+            return false;
         }
     }
 }

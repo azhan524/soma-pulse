@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-01T00:00:00+08:00",
+  "policy": "Any open P0 or P1 blocks M5 release validation.",
+  "issues": [
+    {
+      "id": "RC-001",
+      "severity": "P2",
+      "status": "open",
+      "title": "WebView2 causes one known WindowsBase build warning",
+      "impact": "Build remains successful; warning has not produced a reproduced runtime failure.",
+      "source": "M4-d full regression"
+    },
+    {
+      "id": "RC-002",
+      "severity": "P2",
+      "status": "open",
+      "title": "Multi-monitor desktop coordinate correction is not complete",
+      "impact": "Desktop tools may require coordinate adjustment on multi-monitor layouts.",
+      "source": "README known limitations"
+    },
+    {
+      "id": "RC-003",
+      "severity": "P2",
+      "status": "open",
+      "title": "Body tool table is not fully aligned with the legacy implementation",
+      "impact": "Some legacy-only tool behavior may be unavailable in the modular release.",
+      "source": "README known limitations"
+    }
+  ]
+}

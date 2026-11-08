@@ -9,6 +9,9 @@
     <RootNamespace>AhzScribe.Brain.Smoke</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="BrainCoreSmoke.cs" />
+    <Compile Remove="ToolLoopBodySmoke.cs" />
+    <Compile Remove="RealModelBodySmoke.cs" />
     <ProjectReference Include="..\src\AhzScribe.Brain.csproj" />
   </ItemGroup>
 </Project>

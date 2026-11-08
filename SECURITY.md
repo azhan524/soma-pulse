@@ -2,7 +2,8 @@
 
 ## Supported versions
 
-Pre-release. Only the current `main` branch is supported.
+SomaPulse v3.0.0 / Functional Silicon Life Candidate v1.0.
+The current `main` branch and the latest v3 release tag are supported.
 
 ## Reporting a vulnerability
 
@@ -27,7 +28,7 @@ Please include:
 
 ## Threat model summary
 
-Ahz Scribe is a local desktop agent with optional shell, file, network and UI Automation access. The primary trust boundary is **the operating-system account**, not a JavaScript sandbox.
+SomaPulse's AhzScribe agent is a local desktop agent with optional shell, file, network and UI Automation access. The primary trust boundary is **the operating-system account**, not a JavaScript sandbox.
 
 Read [docs/threat-model.md](docs/threat-model.md) for assets, boundaries, threats and residual risks.
 

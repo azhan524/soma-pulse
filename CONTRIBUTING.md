@@ -2,7 +2,9 @@
 
 ## Before you start
 
-This repository is in a migration period. The current executable code lives in `../local-agent`; the `ahz-scribe-*` directories are the target layout.
+This repository contains the modular SomaPulse release. AhzScribe is the Agent
+inside the project; `ahz-scribe-*` is a compatibility identifier for the
+already-validated binaries and is intentionally not renamed yet.
 
 Please open an issue before large refactors, especially anything touching:
 
@@ -14,20 +16,22 @@ Please open an issue before large refactors, especially anything touching:
 
 ## Development rules
 
-- Windows-first; .NET Framework 4.8 / C# 5 is the compatibility baseline.
-- Do not add string interpolation, `?.`, `nameof`, expression-bodied members, or other C# 6+ syntax to the legacy source.
+- Windows-first; .NET 10 is the current build target.
+- Keep the face / brain / body process boundaries.
 - Keep dangerous tools approval-gated and audit-logged.
 - Do not commit `config.json`, `sessions.json`, API keys, QQ credentials, audit keys, or runtime data.
 - Do not weaken read-only/workspace-write guards for convenience.
-- Add or update a regression test under `devtools/bench/` for behavior changes.
-- Keep names lowercase kebab-case; `ahz-scribe` is always the first identifier.
+- Add or update the fixed smoke tests under the corresponding module.
+- Keep new public names lowercase kebab-case; retain `AhzScribe.*` assembly names until a breaking release.
 
 ## Local checks
 
-```bat
-cd ..\local-agent
-build.cmd
-devtools\bench\run-ui-tests.cmd
+```powershell
+dotnet build contracts/AhzScribe.Contracts.csproj
+dotnet build ahz-scribe-brain/src/AhzScribe.Brain.csproj
+dotnet build ahz-scribe-body/src/AhzScribe.Body.csproj
+dotnet build ahz-scribe-brain-host/src/AhzScribe.BrainHost.csproj
+dotnet build ahz-scribe-face/src/AhzScribe.Face.csproj
 ```
 
 Expected baseline: no failures. Test counts change over time; use the script output, not a hard-coded number.

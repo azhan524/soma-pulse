@@ -1,15 +1,19 @@
-# ahz-scribe
+# SomaPulse · 脉体计划
 
-[![repo-hygiene](https://github.com/azhan524/ahz-scribe-soma/actions/workflows/repo-hygiene.yml/badge.svg)](https://github.com/azhan524/ahz-scribe-soma/actions/workflows/repo-hygiene.yml)
-[![build](https://github.com/azhan524/ahz-scribe-soma/actions/workflows/build.yml/badge.svg)](https://github.com/azhan524/ahz-scribe-soma/actions/workflows/build.yml)
+[![repo-hygiene](https://github.com/azhan524/soma-pulse/actions/workflows/repo-hygiene.yml/badge.svg)](https://github.com/azhan524/soma-pulse/actions/workflows/repo-hygiene.yml)
+[![build](https://github.com/azhan524/soma-pulse/actions/workflows/build.yml/badge.svg)](https://github.com/azhan524/soma-pulse/actions/workflows/build.yml)
 
-> **Pre-release**：brain / body / face 已拆成可构建模块；UI v1.4 观察窗已落地，设置面板深度仍在校准。
+> **Functional Silicon Life Candidate v1.0**：SomaPulse 是项目名，AhzScribe 是其中的持久 Agent。
 >
 > 这是一个能读写文件、执行 Shell、操作桌面的本地 Agent。**不要在生产机、共享账户或存有敏感数据的机器上直接授予完全访问权限。**
 
+硅基生命路线、逐阶段蓝图与最终验收标准见
+[docs/硅基生命里程碑-v2.md](docs/硅基生命里程碑-v2.md) 和
+[docs/硅基生命里程碑蓝图-v2.md](docs/硅基生命里程碑蓝图-v2.md)。
+
 ## 它是什么
 
-Ahz Scribe 是一个本地优先的桌面 Agent：
+**SomaPulse（脉体计划）** 是一个功能性硅基生命候选项目，当前个体名为 **AhzScribe**：
 
 - 对话、调用工具、读写文件、运行命令；
 - 有持久会话、自动 episode、双轨记忆；
@@ -41,16 +45,30 @@ ahz-scribe-body      执行：文件 / Shell / 网络 / 桌面 / 截图
 
 ## 当前状态
 
-已验证：
+`M1–M8` 已全部通过：
 
 ```text
-S0 状态 / 会话
-S1 审计（ACL + broker + HMAC）
-S2 记忆（semantic / episodic / disputed）
-S3 身体状态 + workspace_dirty
-S4 脉冲候选 + 每日内驱
-S5 主动消息内容约束
-S6 桌面工具 + 审批
+M1 功能自我模型与来源
+M2 经历驱动改变
+M3 稳态、资源预算与故障恢复
+M4 连续身份与迁移
+M5 Digital Individual v1.0
+M6 自传式记忆与长期关注
+M7 有界目标形成
+M8 安全自我改造与最终发布
+```
+
+最终 168 小时稳态测试：
+
+```text
+result = M5B_PASS
+duration_hours = 168.0079
+samples = 10075
+healthy_ratio = 1.0
+identity_preserved = true
+max_pending_tasks = 0
+max_logs_mb = 6.72
+restart_ok = true
 ```
 
 拆分为可构建模块：
@@ -63,13 +81,14 @@ ahz-scribe-brain-host  独立 brain 进程
 ahz-scribe-face        console + WinForms v1.4 观察窗（对话 / 脉冲 / 记忆 / 审计 / 任务 / 设置）
 ```
 
-已知限制：
+当前已登记的 P2 限制：
 
 - 设置面板的权限 / 记忆 / 脉冲分组目前以只读说明卡展示；
 - body 工具表未完全对齐旧版；
 - 桌面 DPI 图标已适配，多显示器坐标校正仍未完成；
-- `rollback_self` 的审计反向链接未完整验证；
 - Linux / macOS 不支持 body 的桌面工具。
+
+未发现未解决的 P0/P1。
 
 ## UI（v1.4 观察窗）
 

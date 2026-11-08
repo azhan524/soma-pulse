@@ -50,7 +50,12 @@ namespace AhzScribe.Brain
                 {
                     await _audit.AppendAsync("pulse", "active_task", "skipped", "", "read-only",
                         new Dictionary<string, object>(), "active task", ct).ConfigureAwait(false);
-                    return new PulseDecision { Action = "none", Reason = "active_task" };
+                    return new PulseDecision
+                    {
+                        Action = "none",
+                        Reason = "active_task",
+                        Provenance = SystemProvenance("active task")
+                    };
                 }
 
                 List<MemoryItem> memory = await _memory.LoadAllAsync(ct).ConfigureAwait(false);
@@ -58,6 +63,23 @@ namespace AhzScribe.Brain
                 if (d == null) d = new PulseDecision { Action = "none", Reason = "null" };
                 string action = string.IsNullOrEmpty(d.Action) ? "none" : d.Action.ToLowerInvariant();
                 d.Action = action;
+                if (d.Provenance == null)
+                    d.Provenance = new Provenance
+                    {
+                        Confidence = d.Confidence,
+                        DirectlyObserved = false,
+                        Inferred = true,
+                        Sources = new List<SourceRef>
+                        {
+                            new SourceRef
+                            {
+                                SourceId = _decider == null ? "pulse_scheduler" : _decider.GetType().Name,
+                                Kind = SourceKind.Model,
+                                Ts = DateTimeOffset.UtcNow.ToString("o"),
+                                Summary = d.Reason ?? ""
+                            }
+                        }
+                    };
 
                 await _audit.AppendAsync("pulse_model", "decide", "allowed", action, "read-only",
                     new Dictionary<string, object>(), d.Reason ?? "", ct).ConfigureAwait(false);
@@ -67,15 +89,22 @@ namespace AhzScribe.Brain
                     {
                         await _audit.AppendAsync("proactive_message", "message", "blocked", "empty_text",
                             "read-only", new Dictionary<string, object>(), d.Reason ?? "", ct).ConfigureAwait(false);
-                        return new PulseDecision { Action = "none", Reason = "empty_text" };
+                        return new PulseDecision
+                        {
+                            Action = "none",
+                            Reason = "empty_text",
+                            Provenance = SystemProvenance("empty message text")
+                        };
                     }
                     if (_sink != null)
                     {
                         await _sink.EmitAsync(new PulseEvent
                         {
+                            IntentId = d.CorrelationId ?? "",
                             Kind = "message",
                             Summary = d.Text,
-                            At = DateTimeOffset.UtcNow
+                            At = DateTimeOffset.UtcNow,
+                            Provenance = d.Provenance
                         }, ct).ConfigureAwait(false);
                         await _audit.AppendAsync("proactive_message", "message", "sent", d.Text, "read-only",
                             new Dictionary<string, object>(), d.Reason ?? "", ct).ConfigureAwait(false);
@@ -91,9 +120,34 @@ namespace AhzScribe.Brain
                         new Dictionary<string, object>(), "pulse exception", ct).ConfigureAwait(false);
                 }
                 catch { }
-                return new PulseDecision { Action = "none", Reason = "error:" + ex.Message };
+                return new PulseDecision
+                {
+                    Action = "none",
+                    Reason = "error:" + ex.Message,
+                    Provenance = SystemProvenance(ex.Message)
+                };
             }
             finally { _busy.Release(); }
+        }
+
+        static Provenance SystemProvenance(string summary)
+        {
+            return new Provenance
+            {
+                Confidence = 1.0,
+                DirectlyObserved = true,
+                Inferred = false,
+                Sources = new List<SourceRef>
+                {
+                    new SourceRef
+                    {
+                        SourceId = "pulse_scheduler",
+                        Kind = SourceKind.System,
+                        Ts = DateTimeOffset.UtcNow.ToString("o"),
+                        Summary = summary ?? ""
+                    }
+                }
+            };
         }
 
         public void Dispose() { Stop(); _busy.Dispose(); }

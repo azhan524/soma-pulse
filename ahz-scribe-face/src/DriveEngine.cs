@@ -12,6 +12,13 @@ namespace AhzScribe.Face
         public string Text { get; set; }
         public double Score { get; set; }
         public string Reason { get; set; }
+        public GoalSourceKind SourceKind { get; set; }
+        public List<string> EvidenceIds { get; set; }
+
+        public DriveGoal()
+        {
+            EvidenceIds = new List<string>();
+        }
     }
 
     /// <summary>
@@ -33,7 +40,9 @@ namespace AhzScribe.Face
                     Key = disputed.Key ?? "",
                     Text = "解决记忆矛盾：" + (disputed.Key ?? "") + " = " + (disputed.Value ?? ""),
                     Score = 0.4 * 1.0 + 0.3 * 0.8 + 0.2 * 0.8 + 0.1 * 0.7,
-                    Reason = "disputed memory"
+                    Reason = "disputed memory",
+                    SourceKind = GoalSourceKind.MemoryConflict,
+                    EvidenceIds = new List<string> { disputed.Id ?? "" }
                 });
 
             var semantic = memory.Where(x => string.Equals(x.Kind, "semantic", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -48,7 +57,9 @@ namespace AhzScribe.Face
                     Key = g.Key,
                     Text = (gap ? "补全关系：" : "补全记忆：") + g.Key + " = " + (m.Value ?? ""),
                     Score = 0.4 * (gap ? 0.7 : 0.5) + 0.3 * 0.4 + 0.2 * 0.5 + 0.1 * 0.8,
-                    Reason = gap ? "A/B relation hinted" : "single memory"
+                    Reason = gap ? "A/B relation hinted" : "single memory",
+                    SourceKind = GoalSourceKind.EvidenceGap,
+                    EvidenceIds = new List<string> { m.Id ?? "" }
                 });
             }
 
@@ -61,7 +72,9 @@ namespace AhzScribe.Face
                     Key = dangling.Key,
                     Text = "为记忆建立关联：" + dangling.Key,
                     Score = 0.4 * 0.4 + 0.3 * 0.3 + 0.2 * 0.5 + 0.1 * 0.9,
-                    Reason = "no association"
+                    Reason = "no association",
+                    SourceKind = GoalSourceKind.EvidenceGap,
+                    EvidenceIds = new List<string> { dangling.First().Id ?? "" }
                 });
 
             return goals.OrderByDescending(x => x.Score).FirstOrDefault();

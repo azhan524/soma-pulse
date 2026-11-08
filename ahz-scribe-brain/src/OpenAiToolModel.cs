@@ -40,6 +40,8 @@ namespace AhzScribe.Brain
                 _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         }
 
+        public string ModelName { get { return _o.Model; } }
+
         public async Task<BrainTurn> NextAsync(string system, IReadOnlyList<BrainTurnMessage> history, CancellationToken ct)
         {
             var messages = new List<object>();
@@ -197,11 +199,7 @@ namespace AhzScribe.Brain
 
         static PermissionTier TierFor(string tool)
         {
-            if (tool == "read_file" || tool == "list_dir" || tool == "file_info" || tool == "search_text" || tool == "tail_file" || tool == "glob" || tool == "process_list" || tool == "clipboard_get")
-                return PermissionTier.ReadOnly;
-            if (tool == "write_file" || tool == "edit_file" || tool == "make_dir" || tool == "delete_file" || tool == "copy_file" || tool == "move_file")
-                return PermissionTier.WorkspaceWrite;
-            return PermissionTier.Full;
+            return ToolPolicyCatalog.TierFor(tool);
         }
 
         static object[] ToolDefs()
@@ -212,6 +210,8 @@ namespace AhzScribe.Brain
                 Fn("process_list", "列出占用内存最高的进程", new { }),
                 Fn("process_kill", "按 PID 结束进程（必须已批准）", new { pid = "PID" }),
                 Fn("build_self", "在工作区执行 build.cmd（必须已批准）", new { }),
+                Fn("self_evolution", "受控自我改造流水线（必须已批准）",
+                    new { action = "begin|apply|build|verify|commit|observe|pause|rollback|confirm|status", evolution_id = "", title = "", change = "", paths = new string[0], files = new Dictionary<string, string>(), identity_digest = "", permission_ceiling = "", hours = 24, reason = "" }),
                 Fn("desktop_active_window", "读取前台窗口标题", new { }),
                 Fn("desktop_click", "点击屏幕坐标（必须已批准）", new { x = "x", y = "y" }),
                 Fn("desktop_type", "输入文本（必须已批准）", new { text = "文本" }),
